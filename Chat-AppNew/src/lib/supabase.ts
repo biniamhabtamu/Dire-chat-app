@@ -12,6 +12,7 @@ export interface Message {
   user_email: string
   created_at: string
   channel_id: string
+  
 }
 
 export interface Channel {

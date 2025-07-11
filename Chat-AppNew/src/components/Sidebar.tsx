@@ -17,7 +17,6 @@ import {
 } from '../types';
 import ChannelItem from './ChannelItem';
 import DirectMessageItem from './DirectMessageItem';
-import UserStatus from './UserStatus';
 import { supabase } from '../lib/supabase';
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -25,8 +24,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   channels,
   directMessages,
   activeConversation,
-  searchTerm,
-  setSearchTerm,
   setActiveConversation,
   createChannel,
   createDirectMessage,
@@ -300,11 +297,28 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
         
         {/* User Status */}
-        <UserStatus 
-          user={user} 
-          userName={userName} 
-          openSettings={openSettings} 
-        />
+        <div className="p-4 border-t border-slate-700 bg-slate-900/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-br from-purple-500 to-indigo-500 w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white">
+                {user.email[0].toUpperCase()}
+              </div>
+              <div>
+                <div className="text-gray-200 font-medium">{userName}</div>
+                <div className="text-xs text-gray-400">Online</div>
+              </div>
+            </div>
+            
+            {/* Settings button */}
+            <button
+              onClick={openSettings}
+              className="p-2 rounded-md bg-slate-800 hover:bg-slate-700 text-gray-400 hover:text-purple-300 transition-colors"
+              title="Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
