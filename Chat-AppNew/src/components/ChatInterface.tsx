@@ -19,22 +19,30 @@ interface ChatInterfaceProps {
 
 interface DirectMessage {
   id: number
+  email: string
   name: string
   online: boolean
   unread: number
+}
+
+interface Conversation {
+  type: 'channel' | 'dm'
+  id: string
+  name: string
+  description?: string
 }
 
 export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [channels, setChannels] = useState<Channel[]>([])
-  const [activeChannel, setActiveChannel] = useState<string>('')
+  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [directMessages, setDirectMessages] = useState<DirectMessage[]>([
-    { id: 1, name: 'John Doe', online: true, unread: 3 },
-    { id: 2, name: 'Jane Smith', online: false, unread: 0 },
-    { id: 3, name: 'Alex Johnson', online: true, unread: 1 },
+    { id: 1, email: 'john@example.com', name: 'John Doe', online: true, unread: 3 },
+    { id: 2, email: 'jane@example.com', name: 'Jane Smith', online: false, unread: 0 },
+    { id: 3, email: 'alex@example.com', name: 'Alex Johnson', online: true, unread: 1 },
   ])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -43,11 +51,13 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
   }, [])
 
   useEffect(() => {
-    if (activeChannel) {
-      loadMessages()
-      subscribeToMessages()
+    if (activeConversation?.type === 'channel') {
+      loadChannelMessages(activeConversation.id)
+      subscribeToChannelMessages()
+    } else if (activeConversation?.type === 'dm') {
+      loadDirectMessages(activeConversation.id)
     }
-  }, [activeChannel])
+  }, [activeConversation])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -59,19 +69,22 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
       .select('*')
       .order('created_at')
     
-    if (data) {
+    if (data && data.length > 0) {
       setChannels(data)
-      if (data.length > 0) {
-        setActiveChannel(data[0].id)
-      }
+      setActiveConversation({
+        type: 'channel',
+        id: data[0].id,
+        name: data[0].name,
+        description: data[0].description
+      })
     }
   }
 
-  const loadMessages = async () => {
+  const loadChannelMessages = async (channelId: string) => {
     const { data } = await supabase
       .from('messages')
       .select('*')
-      .eq('channel_id', activeChannel)
+      .eq('channel_id', channelId)
       .order('created_at')
     
     if (data) {
@@ -79,13 +92,39 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
     }
   }
 
-  const subscribeToMessages = () => {
+  const loadDirectMessages = async (contactId: string) => {
+    // In a real app, you would fetch messages from your direct messages table
+    // For demo purposes, we'll simulate loading messages
+    const mockMessages: Message[] = [
+      {
+        id: '1',
+        content: 'Hey there!',
+        user_id: contactId,
+        user_email: contactId,
+        created_at: new Date().toISOString(),
+        channel_id: null
+      },
+      {
+        id: '2',
+        content: 'How are you doing?',
+        user_id: user.id,
+        user_email: user.email,
+        created_at: new Date().toISOString(),
+        channel_id: null
+      }
+    ]
+    setMessages(mockMessages)
+  }
+
+  const subscribeToChannelMessages = () => {
+    if (!activeConversation || activeConversation.type !== 'channel') return
+
     const subscription = supabase
       .channel('messages')
       .on('postgres_changes', 
         { event: 'INSERT', schema: 'public', table: 'messages' }, 
         (payload) => {
-          if (payload.new.channel_id === activeChannel) {
+          if (payload.new.channel_id === activeConversation.id) {
             setMessages(prev => [...prev, payload.new as Message])
           }
         }
@@ -97,23 +136,48 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newMessage.trim() || !activeChannel) return
+    if (!newMessage.trim() || !activeConversation) return
 
     setIsLoading(true)
     
-    const { error } = await supabase
-      .from('messages')
-      .insert([
-        {
-          content: newMessage,
-          user_id: user.id,
-          user_email: user.email,
-          channel_id: activeChannel
-        }
-      ])
+    if (activeConversation.type === 'channel') {
+      // Send channel message
+      const { error } = await supabase
+        .from('messages')
+        .insert([
+          {
+            content: newMessage,
+            user_id: user.id,
+            user_email: user.email,
+            channel_id: activeConversation.id
+          }
+        ])
 
-    if (!error) {
+      if (!error) {
+        setNewMessage('')
+      }
+    } else {
+      // Send direct message
+      // In a real app, you would insert into your direct_messages table
+      // For demo, we'll simulate sending
+      const newMsg: Message = {
+        id: Date.now().toString(),
+        content: newMessage,
+        user_id: user.id,
+        user_email: user.email,
+        created_at: new Date().toISOString(),
+        channel_id: null
+      }
+      
+      setMessages(prev => [...prev, newMsg])
       setNewMessage('')
+      
+      // Update unread count for recipient
+      setDirectMessages(prev => prev.map(dm => 
+        dm.email === activeConversation.id 
+          ? {...dm, unread: dm.unread + 1} 
+          : dm
+      ))
     }
     
     setIsLoading(false)
@@ -133,13 +197,29 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
   }
 
   const createDirectMessage = () => {
-    const userName = prompt('Enter user name to start a conversation:')
-    if (userName) {
+    const email = prompt('Enter user email to start a conversation:')
+    if (email) {
+      // Validate email format
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        alert('Please enter a valid email address')
+        return
+      }
+      
+      // Check if contact already exists
+      if (directMessages.some(dm => dm.email === email)) {
+        alert('Conversation with this user already exists')
+        return
+      }
+      
+      // Extract name from email
+      const name = email.split('@')[0]
+      
       setDirectMessages(prev => [
         ...prev, 
         { 
           id: Date.now(), 
-          name: userName, 
+          email,
+          name, 
           online: true, 
           unread: 0 
         }
@@ -159,7 +239,6 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
     })
   }
 
-  const activeChannelData = channels.find(c => c.id === activeChannel)
   const filteredChannels = channels.filter(channel => 
     channel.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
@@ -235,15 +314,20 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
               {filteredChannels.map((channel) => (
                 <button
                   key={channel.id}
-                  onClick={() => setActiveChannel(channel.id)}
+                  onClick={() => setActiveConversation({
+                    type: 'channel',
+                    id: channel.id,
+                    name: channel.name,
+                    description: channel.description
+                  })}
                   className={`w-full text-left p-3 rounded-lg transition-all flex items-center gap-3 group ${
-                    activeChannel === channel.id
+                    activeConversation?.type === 'channel' && activeConversation.id === channel.id
                       ? 'bg-gradient-to-r from-purple-600/80 to-indigo-600/80 text-white shadow-md'
                       : 'text-gray-300 hover:bg-slate-700/50'
                   }`}
                 >
                   <div className={`p-1.5 rounded-lg ${
-                    activeChannel === channel.id 
+                    activeConversation?.type === 'channel' && activeConversation.id === channel.id 
                       ? 'bg-white/20' 
                       : 'bg-slate-700 group-hover:bg-slate-600'
                   }`}>
@@ -280,7 +364,22 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
               {directMessages.map((dm) => (
                 <button
                   key={dm.id}
-                  className="w-full text-left p-2 rounded-lg flex items-center gap-3 text-gray-300 hover:bg-slate-700/50 transition-colors group"
+                  onClick={() => {
+                    // Reset unread count when opening conversation
+                    setDirectMessages(prev => prev.map(d => 
+                      d.email === dm.email ? {...d, unread: 0} : d
+                    ))
+                    setActiveConversation({
+                      type: 'dm',
+                      id: dm.email,
+                      name: dm.name
+                    })
+                  }}
+                  className={`w-full text-left p-2 rounded-lg flex items-center gap-3 transition-colors group ${
+                    activeConversation?.type === 'dm' && activeConversation.id === dm.email
+                      ? 'bg-cyan-600/20 text-white'
+                      : 'text-gray-300 hover:bg-slate-700/50'
+                  }`}
                 >
                   <div className="relative">
                     <div className="bg-gradient-to-br from-cyan-500 to-teal-500 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white">
@@ -333,13 +432,19 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
         <div className="bg-slate-800 border-b border-slate-700 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Hash className="w-5 h-5 text-gray-400" />
+              {activeConversation?.type === 'channel' ? (
+                <Hash className="w-5 h-5 text-gray-400" />
+              ) : (
+                <User className="w-5 h-5 text-cyan-400" />
+              )}
               <div>
                 <h2 className="text-lg font-semibold text-white">
-                  {activeChannelData?.name || 'Select a channel'}
+                  {activeConversation?.name || 'Select a conversation'}
                 </h2>
                 <p className="text-sm text-gray-400">
-                  {activeChannelData?.description}
+                  {activeConversation?.type === 'channel' 
+                    ? activeConversation.description 
+                    : 'Direct message conversation'}
                 </p>
               </div>
             </div>
@@ -384,13 +489,17 @@ export default function ChatInterface({ user, onSignOut }: ChatInterfaceProps) {
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={`Message ${activeChannelData?.name || 'channel'}`}
+              placeholder={
+                activeConversation?.type === 'channel' 
+                  ? `Message #${activeConversation?.name || 'channel'}`
+                  : `Message ${activeConversation?.name || 'user'}`
+              }
               className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all"
-              disabled={isLoading || !activeChannel}
+              disabled={isLoading || !activeConversation}
             />
             <button
               type="submit"
-              disabled={isLoading || !newMessage.trim() || !activeChannel}
+              disabled={isLoading || !newMessage.trim() || !activeConversation}
               className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-3 rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
             >
               <Send className="w-5 h-5" />
