@@ -1,8 +1,22 @@
 // src/components/MainChatArea.tsx
-import React from 'react';
-import { Hash, User, Users, Settings, Send, MessageCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Hash, 
+  User, 
+  Users, 
+  Settings, 
+  Send, 
+  MessageCircle, 
+  Loader2,
+  Edit,
+  Trash2,
+  Reply,
+  Check,
+  X
+} from 'lucide-react';
 import { MainChatAreaProps, Message } from '../types';
 import MessageItem from './MessageItem';
+import { supabase } from '../lib/supabase';
 
 const MainChatArea: React.FC<MainChatAreaProps> = ({
   user,
@@ -12,12 +26,79 @@ const MainChatArea: React.FC<MainChatAreaProps> = ({
   activeConversation,
   setNewMessage,
   sendMessage,
-  messagesEndRef
+  messagesEndRef,
+  setDirectMessages,
+  directMessages
 }) => {
-  // Calculate participant count (for demo purposes)
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+  const [draftContent, setDraftContent] = useState('');
+  
+  // Calculate participant count
   const participantCount = activeConversation?.type === 'channel' 
     ? Math.floor(Math.random() * 15) + 3  // Random between 3-17
     : 2;  // Always 2 for direct messages
+
+  // Handle message editing
+  const startEditing = (message: Message) => {
+    setEditingMessage(message);
+    setDraftContent(message.content);
+  };
+
+  const cancelEditing = () => {
+    setEditingMessage(null);
+    setDraftContent('');
+  };
+
+  const saveEdit = async () => {
+    if (!editingMessage || !draftContent.trim()) return;
+
+    // Update in Supabase
+    const { error } = await supabase
+      .from(activeConversation?.type === 'channel' ? 'messages' : 'direct_messages')
+      .update({ content: draftContent })
+      .eq('id', editingMessage.id);
+
+    if (!error) {
+      // Update local state
+      const updatedMessages = messages.map(msg => 
+        msg.id === editingMessage.id ? { ...msg, content: draftContent } : msg
+      );
+      
+      // Update context state
+      // (You'll need to pass a setMessages function from parent)
+      // setMessages(updatedMessages);
+      
+      setEditingMessage(null);
+      setDraftContent('');
+    }
+  };
+
+  // Handle message deletion
+  const deleteMessage = async (messageId: string) => {
+    if (!confirm('Are you sure you want to delete this message?')) return;
+
+    // Delete from Supabase
+    const { error } = await supabase
+      .from(activeConversation?.type === 'channel' ? 'messages' : 'direct_messages')
+      .delete()
+      .eq('id', messageId);
+
+    if (!error) {
+      // Update local state
+      const updatedMessages = messages.filter(msg => msg.id !== messageId);
+      
+      // Update context state
+      // (You'll need to pass a setMessages function from parent)
+      // setMessages(updatedMessages);
+    }
+  };
+
+  // Handle message replies
+  const startReply = (message: Message) => {
+    setReplyToMessage(message);
+    setNewMessage(`@${message.user_email.split('@')[0]} `);
+  };
 
   return (
     <div className="flex-1 flex flex-col">
@@ -94,7 +175,15 @@ const MainChatArea: React.FC<MainChatAreaProps> = ({
         ) : (
           <div className="p-4 space-y-4">
             {messages.map((message) => (
-              <MessageItem key={message.id} message={message} />
+              <MessageItem 
+                key={message.id} 
+                message={message}
+                currentUser={user.id}
+                onEdit={startEditing}
+                onDelete={deleteMessage}
+                onReply={startReply}
+                isEditing={editingMessage?.id === message.id}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>
@@ -103,6 +192,44 @@ const MainChatArea: React.FC<MainChatAreaProps> = ({
 
       {/* Message Input */}
       <div className="bg-slate-800 border-t border-slate-700 p-4">
+        {editingMessage && (
+          <div className="mb-3 p-3 bg-slate-700/50 rounded-lg flex items-center justify-between">
+            <div className="text-cyan-400 flex items-center gap-2">
+              <Edit className="w-4 h-4" />
+              <span>Editing message</span>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={cancelEditing}
+                className="p-1.5 rounded-md bg-slate-600 hover:bg-slate-500 text-gray-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={saveEdit}
+                className="p-1.5 rounded-md bg-cyan-600 hover:bg-cyan-500 text-white"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {replyToMessage && (
+          <div className="mb-3 p-3 bg-slate-700/50 rounded-lg flex items-center justify-between">
+            <div className="text-purple-400 flex items-center gap-2">
+              <Reply className="w-4 h-4" />
+              <span>Replying to {replyToMessage.user_email.split('@')[0]}</span>
+            </div>
+            <button 
+              onClick={() => setReplyToMessage(null)}
+              className="p-1.5 rounded-md bg-slate-600 hover:bg-slate-500 text-gray-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        
         <form onSubmit={sendMessage} className="flex gap-3">
           <input
             type="text"
@@ -115,12 +242,6 @@ const MainChatArea: React.FC<MainChatAreaProps> = ({
             }
             className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all disabled:opacity-50"
             disabled={isLoading || !activeConversation}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage(e);
-              }
-            }}
           />
           <button
             type="submit"

@@ -13,12 +13,12 @@ import {
 } from 'lucide-react';
 import { 
   SidebarProps, 
-  DirectMessage, 
-  Conversation 
+  DirectMessage 
 } from '../types';
 import ChannelItem from './ChannelItem';
 import DirectMessageItem from './DirectMessageItem';
 import UserStatus from './UserStatus';
+import { supabase } from '../lib/supabase';
 
 const Sidebar: React.FC<SidebarProps> = ({
   user,
@@ -37,6 +37,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   const userName = user.email.split('@')[0];
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   
   // Check if mobile device
   useEffect(() => {
@@ -56,8 +59,75 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [activeConversation, isMobile]);
 
+  // Search for users
+  useEffect(() => {
+    if (userSearch.trim() === '') {
+      setSearchResults([]);
+      return;
+    }
+
+    const searchUsers = async () => {
+      setIsSearching(true);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, username, avatar_url')
+        .or(`username.ilike.%${userSearch}%,email.ilike.%${userSearch}%`)
+        .limit(5);
+
+      if (!error && data) {
+        setSearchResults(data.filter(u => u.id !== user.id));
+      }
+      setIsSearching(false);
+    };
+
+    const timer = setTimeout(searchUsers, 300);
+    return () => clearTimeout(timer);
+  }, [userSearch, user.id]);
+
   const toggleSidebar = () => {
     setIsCollapsed(!isCollapsed);
+  };
+
+  const startNewConversation = async (contact: any) => {
+    const existing = directMessages.find(dm => dm.email === contact.email);
+    
+    if (existing) {
+      setActiveConversation({
+        type: 'dm',
+        id: contact.email,
+        name: contact.username || contact.email.split('@')[0]
+      });
+      setUserSearch('');
+      return;
+    }
+
+    // Add to direct messages
+    const newContact = {
+      id: Date.now(),
+      email: contact.email,
+      name: contact.username || contact.email.split('@')[0],
+      online: true,
+      unread: 0
+    };
+
+    setDirectMessages(prev => [...prev, newContact]);
+    
+    // Create conversation in Supabase
+    await supabase
+      .from('direct_message_conversations')
+      .upsert([{
+        user1_id: user.id,
+        user2_id: contact.id,
+        last_message_at: new Date().toISOString()
+      }]);
+
+    setActiveConversation({
+      type: 'dm',
+      id: newContact.email,
+      name: newContact.name
+    });
+
+    setUserSearch('');
   };
 
   return (
@@ -126,12 +196,47 @@ const Sidebar: React.FC<SidebarProps> = ({
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Search channels..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search users..."
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
             />
           </div>
+          
+          {/* Search Results */}
+          {userSearch && (
+            <div className="absolute z-10 w-[calc(100%-2rem)] mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg">
+              {isSearching ? (
+                <div className="p-4 flex justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-500"></div>
+                </div>
+              ) : searchResults.length > 0 ? (
+                <div className="py-2">
+                  {searchResults.map(user => (
+                    <div 
+                      key={user.id}
+                      onClick={() => startNewConversation(user)}
+                      className="px-4 py-2 flex items-center gap-3 hover:bg-slate-700 cursor-pointer transition-colors"
+                    >
+                      <div className="bg-gradient-to-br from-cyan-500 to-teal-500 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white">
+                        {user.email[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="text-gray-200 font-medium">
+                          {user.username || user.email.split('@')[0]}
+                        </div>
+                        <div className="text-xs text-gray-400">{user.email}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 text-gray-400 text-center">
+                  No users found
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Scrollable Content */}

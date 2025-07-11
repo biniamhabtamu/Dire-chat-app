@@ -80,3 +80,43 @@ ON CONFLICT DO NOTHING;
 CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_channels_name ON channels(name);
+
+-- Profiles table
+CREATE TABLE profiles (
+  id UUID REFERENCES auth.users NOT NULL PRIMARY KEY,
+  email TEXT NOT NULL,
+  username TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Direct message conversations
+CREATE TABLE direct_message_conversations (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user1_id UUID REFERENCES profiles(id) NOT NULL,
+  user2_id UUID REFERENCES profiles(id) NOT NULL,
+  last_message_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (user1_id, user2_id)
+);
+
+-- Direct messages
+CREATE TABLE direct_messages (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  conversation_id UUID REFERENCES direct_message_conversations(id) NOT NULL,
+  sender_id UUID REFERENCES profiles(id) NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP
+);
+
+-- Channel messages (if not already created)
+CREATE TABLE messages (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  channel_id UUID REFERENCES channels(id) NOT NULL,
+  user_id UUID REFERENCES profiles(id) NOT NULL,
+  user_email TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP
+);
