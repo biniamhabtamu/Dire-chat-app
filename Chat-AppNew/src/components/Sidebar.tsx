@@ -1,5 +1,6 @@
 // src/components/Sidebar.tsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'
 import { 
   MessageSquare, 
   Search, 
@@ -30,7 +31,19 @@ const Sidebar: React.FC<SidebarProps> = ({
   openSettings,
   onSignOut,
   setDirectMessages
+
+  
+  
+
+
 }) => {
+
+   const navigate = useNavigate();
+  
+  // Create settings navigation function
+  const openSettings = () => {
+    navigate('/settings');
+
   const userName = user.email.split('@')[0];
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -315,7 +328,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               className="p-2 rounded-md bg-slate-800 hover:bg-slate-700 text-gray-400 hover:text-purple-300 transition-colors"
               title="Settings"
             >
-              <Settings className="w-5 h-5" />
+              <Settings onClick='window.loacation.href=""' className="w-5 h-5" />
             </button>
           </div>
         </div>
